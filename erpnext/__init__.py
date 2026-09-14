@@ -4,7 +4,7 @@ from typing import TypeVar
 
 import frappe
 
-__version__ = "17.0.0-dev"
+__version__ = "17.0.0-dev-kv2m"
 
 
 def get_default_company(user=None):
