@@ -24,26 +24,34 @@ ARG CACHE_BUST=""
 
 USER frappe
 
-# Diretório precisa se chamar `erpnext`: hooks.py declara app_name = erpnext
-# e o bench clona/copia usando o nome da pasta de origem.
-COPY --chown=frappe:frappe . /tmp/erpnext
-
-# CACHE_BUST invalida esta camada quando o commit muda (o COPY já faz isso
-# para o fonte; o arg cobre rebuilds em que só o frappe/payments avançou).
-RUN : "${CACHE_BUST}" && \
-    bench init \
+# bench init é a camada cara e estável (frappe). O COPY do fork fica DEPOIS
+# para não invalidar esse cache a cada commit.
+RUN bench init \
       --frappe-branch="${FRAPPE_BRANCH}" \
       --frappe-path="${FRAPPE_PATH}" \
       --no-procfile \
       --no-backups \
       --skip-redis-config-generation \
       --verbose \
-      /home/frappe/frappe-bench && \
+      /home/frappe/frappe-bench
+
+# hooks.py declara app_name = erpnext; a pasta precisa ter esse nome.
+COPY --chown=frappe:frappe . /tmp/erpnext
+
+# get-app --resolve-deps em path local (sem .git) estoura
+# `'App' object has no attribute 'org'`. Copiamos o tree e puxamos
+# payments — dependência de runtime do ERPNext — direto do GitHub.
+RUN : "${CACHE_BUST}" && \
     cd /home/frappe/frappe-bench && \
-    bench get-app --resolve-deps /tmp/erpnext && \
+    cp -a /tmp/erpnext apps/erpnext && \
+    rm -rf /tmp/erpnext && \
+    ./env/bin/pip install --quiet -e apps/erpnext && \
+    grep -qx erpnext sites/apps.txt || echo erpnext >> sites/apps.txt && \
+    bench get-app --branch="${FRAPPE_BRANCH}" --skip-assets payments && \
+    bench setup requirements && \
+    bench build --production && \
     echo "{}" > sites/common_site_config.json && \
-    find apps -mindepth 1 -path "*/.git" | xargs rm -fr && \
-    rm -rf /tmp/erpnext
+    find apps -mindepth 1 -path "*/.git" | xargs rm -fr
 
 FROM ${FRAPPE_IMAGE_PREFIX}/base:${FRAPPE_BRANCH} AS backend
 
