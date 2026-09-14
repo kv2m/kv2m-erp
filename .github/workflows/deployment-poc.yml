@@ -1,0 +1,197 @@
+name: Deployment - POC
+
+# Imagem ARM64 deste fork → ECR kv2m-erpnext-poc → ECS kv2m-erpnext-poc.
+#
+# Só dispara na mão (workflow_dispatch). develop é v17-dev; o site no ar
+# hoje é ERPNext v16.34.2. O deploy substitui a imagem e o `bench migrate`
+# no boot da task nova é um upgrade de major — não é automático no push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      frappe_branch:
+        description: Branch do Frappe Framework (precisa casar com este repo)
+        required: true
+        default: develop
+
+concurrency:
+  group: deployment-erpnext-poc
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_ARN: arn:aws:iam::537968013910:role/gha-kv2m-role
+  ECR_REGISTRY: 537968013910.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: kv2m-erpnext-poc
+  ECS_CLUSTER: kv2m-erpnext-poc
+  ECS_SERVICE: kv2m-erpnext-poc
+  ECS_TASK_FAMILY: kv2m-erpnext-poc
+  APP_DOMAIN: erp.kv2m.com.br
+  FRAPPE_BRANCH: ${{ github.event.inputs.frappe_branch || 'develop' }}
+
+jobs:
+  build:
+    name: Build and publish ARM64 image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: poc
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Definir revisao da imagem
+        id: revision
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Autenticar na AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: erpnext-poc-build-${{ github.run_id }}
+
+      - name: Login no Amazon ECR
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Verificar se a imagem do commit ja existe
+        id: existing
+        env:
+          IMAGE_TAG: ${{ steps.revision.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+               --image-ids "imageTag=$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "$ECR_REPOSITORY:$IMAGE_TAG ja existe — build reaproveitado."
+          else
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configurar QEMU
+        if: steps.existing.outputs.app == 'false'
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        with:
+          platforms: arm64
+
+      - name: Configurar Buildx
+        if: steps.existing.outputs.app == 'false'
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build e push da imagem (linux/arm64)
+        if: steps.existing.outputs.app == 'false'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          build-args: |
+            FRAPPE_BRANCH=${{ env.FRAPPE_BRANCH }}
+            CACHE_BUST=${{ steps.revision.outputs.sha }}
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.revision.outputs.sha }}
+          cache-from: type=gha,scope=erpnext-arm64
+          cache-to: type=gha,scope=erpnext-arm64,mode=max
+
+  deploy:
+    name: Deploy no ECS
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: poc
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Autenticar na AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: erpnext-poc-${{ github.run_id }}
+
+      - name: Registrar nova revisao da task definition
+        id: taskdef
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x .github/scripts/ecs_register_taskdef.sh
+          arn=$(.github/scripts/ecs_register_taskdef.sh "$ECS_TASK_FAMILY" \
+            "$ECR_REGISTRY/$ECR_REPOSITORY=$IMAGE_TAG")
+          echo "Revisao registrada: $arn"
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+
+      - name: Atualizar o servico
+        env:
+          TASKDEF_ARN: ${{ steps.taskdef.outputs.arn }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "$TASKDEF_ARN" \
+            --query 'service.{service:serviceName,taskDefinition:taskDefinition}' \
+            --output table
+
+          echo "Aguardando o servico estabilizar (janela de downtime, desired_count=1)..."
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          echo "Servico estavel."
+
+      - name: Confirmar migrate no boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          task_arn=$(aws ecs list-tasks --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" \
+            --desired-status RUNNING --query 'taskArns[0]' --output text)
+          if [ -z "$task_arn" ] || [ "$task_arn" = "None" ]; then
+            echo "Nenhuma task RUNNING apos o deploy." >&2
+            exit 1
+          fi
+          echo "Task: $task_arn"
+          # O container migrator (task definition) roda bench migrate no boot.
+          # Aqui só confirmamos que ele saiu 0; se a revisão ainda não tiver
+          # migrator, o smoke test abaixo é que pega schema quebrado.
+          aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$task_arn" \
+            --query 'tasks[0].containers[].{name:name,exit:exitCode,status:lastStatus,reason:reason}' \
+            --output table
+
+      - name: Smoke test publico
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 10 "https://$APP_DOMAIN/api/method/ping"; then
+              echo
+              echo "Health check publico OK (tentativa $attempt)."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check publico falhou apos 5 minutos." >&2
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].events[:10]' --output table >&2
+          exit 1
+
+      - name: Resumo do deploy
+        if: always()
+        shell: bash
+        run: |
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[0].{status:status,desired:desiredCount,running:runningCount,taskDefinition:taskDefinition}' \
+            --output table
