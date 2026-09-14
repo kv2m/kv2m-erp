@@ -13,6 +13,8 @@ from erpnext.stock.doctype.price_list.price_list import is_price_list_enabled
 def boot_session(bootinfo):
 	"""boot session - send website info if guest"""
 
+	bootinfo.app_logo_url = "/assets/erpnext/images/kv2m-logo.png"
+
 	if frappe.session["user"] != "Guest":
 		update_page_info(bootinfo)
 
