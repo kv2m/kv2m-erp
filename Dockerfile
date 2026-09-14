@@ -45,6 +45,10 @@ RUN : "${CACHE_BUST}" && \
     cd /home/frappe/frappe-bench && \
     cp -a /tmp/erpnext apps/erpnext && \
     rm -rf /tmp/erpnext && \
+    git -C apps/erpnext init && \
+    git -C apps/erpnext remote add origin https://github.com/frappe/erpnext.git && \
+    git -C apps/erpnext add -A && \
+    git -C apps/erpnext -c user.email=ci@kv2m -c user.name=ci commit -m src --quiet && \
     ./env/bin/pip install --quiet -e apps/erpnext && \
     grep -qx erpnext sites/apps.txt || echo erpnext >> sites/apps.txt && \
     bench get-app --branch="${FRAPPE_BRANCH}" --skip-assets payments && \
