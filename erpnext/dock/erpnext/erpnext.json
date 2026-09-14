@@ -8,6 +8,14 @@
   {
    "added": 0,
    "hidden": 0,
+   "icon": "warehouse",
+   "link_type": "URL",
+   "title": "Suprimento",
+   "url": "https://catalogo.kv2m.com.br/v3/dashboard/"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
    "icon": "landmark",
    "link_to": "Accounts",
    "link_type": "Sidebar",

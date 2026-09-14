@@ -8,6 +8,18 @@
  "items": [
   {
    "child": 0,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Suprimento",
+   "link_type": "URL",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link",
+   "url": "https://catalogo.kv2m.com.br/v3/dashboard/"
+  },
+  {
+   "child": 0,
    "collapsible": 1,
    "indent": 0,
    "keep_closed": 0,

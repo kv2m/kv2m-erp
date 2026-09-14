@@ -5,7 +5,7 @@
    "label": "Profit and Loss"
   }
  ],
- "content": "[{\"id\": \"797d6b3896\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Profit and Loss\", \"col\": 12}}, {\"id\": \"7dfaeec97e\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Annual Sales\", \"col\": 4}}, {\"id\": \"b76ffb894b\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Annual Purchase\", \"col\": 4}}, {\"id\": \"ba3943fb2d\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Total Stock Value\", \"col\": 4}}]",
+ "content": "[{\"id\": \"suprimento-shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Suprimento\", \"col\": 3}}, {\"id\": \"797d6b3896\", \"type\": \"chart\", \"data\": {\"chart_name\": \"Profit and Loss\", \"col\": 12}}, {\"id\": \"7dfaeec97e\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Annual Sales\", \"col\": 4}}, {\"id\": \"b76ffb894b\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Annual Purchase\", \"col\": 4}}, {\"id\": \"ba3943fb2d\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Total Stock Value\", \"col\": 4}}]",
  "creation": "2020-01-23 13:46:38.833076",
  "custom_blocks": [],
  "docstatus": 0,
@@ -46,7 +46,21 @@
   }
  ],
  "sequence_id": 1.0,
- "shortcuts": [],
+ "shortcuts": [
+  {
+   "color": "#449CF0",
+   "doc_view": "",
+   "format": "",
+   "icon": "warehouse",
+   "kanban_board": "",
+   "label": "Suprimento",
+   "link_to": "",
+   "restrict_to_domain": "",
+   "stats_filter": "",
+   "type": "URL",
+   "url": "https://catalogo.kv2m.com.br/v3/dashboard/"
+  }
+ ],
  "standard": 1,
  "title": "Home",
  "type": "Workspace"
